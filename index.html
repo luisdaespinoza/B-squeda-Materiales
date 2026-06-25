@@ -115,12 +115,10 @@
 
     <script>
         // ==========================================
-        // 1. BASE DE DATOS DE MATERIALES (Sustituye aquí uno a uno)
+        // 1. BASE DE DATOS DE MATERIALES
         // ==========================================
-        // Puedes agregar todas las filas que necesites. Asegúrate de seguir
-        // esta misma estructura y colocar una coma (,) al final de cada bloque.
         const materiales = [
-{ codigo: "1111089", nombre: "TERMOLAMINADO CARTA 225 X 285 MM"},
+            { codigo: "1111089", nombre: "TERMOLAMINADO CARTA 225 X 285 MM"},
 { codigo: "1111090", nombre: "TERMOLAMINADO OFICIO 225 X 336 MM"},
 { codigo: "1140214", nombre: "ACIDO CLORHIDRICO FUMANTE 37% 2,5L"},
 { codigo: "1157033", nombre: "PILA GRANDE D"},
@@ -4995,6 +4993,12 @@
             // <-- PUEDES SEGUIR COPIANDO Y PEGANDO TUS FILAS AQUÍ ABAJO
         ];
 
+        // OPTIMIZACIÓN 1: Pre-calcular la cadena de búsqueda una sola vez al cargar la app
+        // Esto evita tener que hacer .toLowerCase() de miles de ítems cada vez que se presiona una tecla.
+        materiales.forEach(item => {
+            item._claveBusqueda = `${item.nombre} ${item.codigo}`.toLowerCase();
+        });
+
         // ==========================================
         // 2. REFERENCIAS DEL DOM
         // ==========================================
@@ -5007,12 +5011,15 @@
         const toast = document.getElementById('toast');
         const toastMessage = document.getElementById('toastMessage');
 
+        // OPTIMIZACIÓN 2: Usar el SVG del icono de copiar directo para no saturar lucide.createIcons() en el bucle
+        const iconCopySVG = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy w-4 h-4"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
+
         // ==========================================
         // 3. DETECCIÓN AUTOMÁTICA DEL MODO OSCURO
         // ==========================================
         function initTheme() {
             const hora = new Date().getHours();
-            const esDeNoche = hora >= 19 || hora < 7; // Activa modo oscuro automático de 7 PM a 7 AM
+            const esDeNoche = hora >= 19 || hora < 7;
             const prefiereOscuro = window.matchMedia('(prefers-color-scheme: dark)').matches;
             
             const temaGuardado = localStorage.getItem('theme');
@@ -5023,7 +5030,6 @@
             }
         }
         
-        // Cambio manual con botón
         themeToggle.addEventListener('click', () => {
             if (document.documentElement.classList.contains('dark')) {
                 document.documentElement.classList.remove('dark');
@@ -5058,7 +5064,6 @@
             }
         }
 
-        // Mostrar aviso flotante temporal
         function mostrarToast(mensaje) {
             toastMessage.textContent = mensaje;
             toast.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-2');
@@ -5084,15 +5089,13 @@
 
         function resaltarTexto(texto, consulta) {
             if (!consulta) return escaparHTML(texto);
-            
             const textoEscapado = escaparHTML(texto);
             const consultaLimpia = consulta.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
             const regex = new RegExp(`(${consultaLimpia})`, 'gi');
-            
             return textoEscapado.replace(regex, '<mark>$1</mark>');
         }
 
-        function renderizarLista(elementos, consulta = '') {
+        function renderizarLista(elementos, consulta = '', totalResultados = 0) {
             resultsList.innerHTML = '';
             
             if (elementos.length === 0) {
@@ -5105,8 +5108,11 @@
             noResults.classList.add('hidden');
             resultsList.classList.remove('hidden');
 
-            // Ordenar alfabéticamente por nombre
+            // Ordenamos los elementos filtrados alfabéticamente
             const elementosOrdenados = [...elementos].sort((a, b) => a.nombre.localeCompare(b.nombre));
+            
+            // OPTIMIZACIÓN 3: DocumentFragment evita que el navegador redibuje la lista ítem por ítem
+            const fragment = document.createDocumentFragment();
 
             elementosOrdenados.forEach(item => {
                 const card = document.createElement('div');
@@ -5129,28 +5135,26 @@
                             title="Copiar código"
                             data-codigo="${item.codigo}"
                         >
-                            <i data-lucide="copy" class="w-4 h-4"></i>
+                            ${iconCopySVG}
                         </button>
                     </div>
                 `;
 
-                // Evento click al botón copiar
                 card.querySelector('.copy-btn').addEventListener('click', (e) => {
                     e.stopPropagation();
                     copiarCodigo(item.codigo);
                 });
 
-                resultsList.appendChild(card);
+                fragment.appendChild(card);
             });
 
-            // Re-renderizar iconos de la biblioteca Lucide
-            lucide.createIcons();
+            // Agregamos todo de golpe al DOM
+            resultsList.appendChild(fragment);
 
-            // Mensaje informativo sobre la búsqueda
             if (consulta) {
-                resultsCount.textContent = `${elementos.length} resultado(s) para "${consulta}"`;
+                resultsCount.textContent = `Mostrando ${elementos.length} de ${totalResultados} resultado(s) para "${consulta}"`;
             } else {
-                resultsCount.textContent = `${elementos.length} materiales registrados`;
+                resultsCount.textContent = `Mostrando los primeros ${elementos.length} de ${materiales.length} materiales registrados`;
             }
         }
 
@@ -5162,26 +5166,32 @@
 
             if (consulta === '') {
                 clearButton.classList.add('hidden');
-                renderizarLista(materiales);
+                // OPTIMIZACIÓN 4: Al estar vacío, limitamos a dibujar solo los primeros 50 para evitar lag de inicio
+                renderizarLista(materiales.slice(0, 50), '', materiales.length);
                 return;
             }
 
             clearButton.classList.remove('hidden');
 
-            // Filtrado sobre los campos nombre, codigo y sinonimos
-            const filtrados = materiales.filter(item => {
-                const cumpleNombre = item.nombre.toLowerCase().includes(consulta);
-                const cumpleCodigo = item.codigo.toLowerCase().includes(consulta);
-                
-                return cumpleNombre || cumpleCodigo;
-            });
-
-            renderizarLista(filtrados, consulta);
+            // Búsqueda usando el campo pre-calculado (_claveBusqueda) mucho más rápido
+            const filtrados = materiales.filter(item => item._claveBusqueda.includes(consulta));
+            const limitados = filtrados.slice(0, 50);
+            
+            renderizarLista(limitados, consulta, filtrados.length);
         }
 
-        searchInput.addEventListener('input', realizarBusqueda);
+        // OPTIMIZACIÓN 5: Función Debounce para no saturar el procesador mientras tecleas rápido
+        function debounce(func, wait) {
+            let timeout;
+            return function(...args) {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(this, args), wait);
+            };
+        }
 
-        // Acción de botón X para limpiar campo
+        // Retrasamos la búsqueda 150 milisegundos tras dejar de teclear
+        searchInput.addEventListener('input', debounce(realizarBusqueda, 150));
+
         clearButton.addEventListener('click', () => {
             searchInput.value = '';
             realizarBusqueda();
@@ -5193,8 +5203,8 @@
         // ==========================================
         window.addEventListener('DOMContentLoaded', () => {
             initTheme();
-            lucide.createIcons();
-            renderizarLista(materiales);
+            lucide.createIcons(); // Dibuja solo los iconos principales fijos (lupa, luna, sol)
+            realizarBusqueda();   // Renderiza los primeros 50 resultados iniciales
         });
     </script>
 </body>
