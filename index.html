@@ -5122,7 +5122,8 @@
                 
                 card.innerHTML = `
                     <div class="flex-1 min-w-0 pr-4">
-                        <h4 class="text-sm sm:text-base font-semibold text-slate-700 dark:text-slate-200 truncate">
+                        <!-- AQUÍ SE CAMBIÓ truncate POR break-words y leading-snug PARA QUE SALTE LA LÍNEA -->
+                        <h4 class="text-sm sm:text-base font-semibold text-slate-700 dark:text-slate-200 break-words leading-snug">
                             ${resaltarTexto(item.nombre, consulta)}
                         </h4>
                     </div>
