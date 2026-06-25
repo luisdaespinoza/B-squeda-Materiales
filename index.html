@@ -50,8 +50,8 @@
                     <i data-lucide="package-search" class="w-6 h-6"></i>
                 </div>
                 <div>
-                    <h1 class="text-xl sm:text-2xl font-bold tracking-tight">Buscador de Codigos</h1>
-                    <p class="text-xs sm:text-sm text-slate-400 dark:text-slate-500">Encuentra el código de tu material general al instante</p>
+                    <h1 class="text-xl sm:text-2xl font-bold tracking-tight">Buscador de Códigos</h1>
+                    <p class="text-xs sm:text-sm text-slate-400 dark:text-slate-500">Encuentra el código de tu material al instante</p>
                 </div>
             </div>
             
@@ -92,6 +92,19 @@
         <!-- LISTA VERTICAL DE MATERIALES -->
         <div id="resultsList" class="space-y-3 max-h-[500px] overflow-y-auto pr-1">
             <!-- Los elementos se renderizan aquí dinámicamente -->
+        </div>
+
+        <!-- CONTROLES DE PAGINACIÓN -->
+        <div id="paginationControls" class="hidden flex items-center justify-between mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
+            <button id="prevPageBtn" class="flex items-center gap-1 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-slate-800/50 dark:text-slate-300 dark:hover:bg-slate-700 transition-all-200">
+                <i data-lucide="chevron-left" class="w-4 h-4"></i> Anterior
+            </button>
+            <span id="pageIndicator" class="text-xs sm:text-sm font-medium text-slate-500 dark:text-slate-400 text-center">
+                Página 1 de X
+            </span>
+            <button id="nextPageBtn" class="flex items-center gap-1 px-4 py-2 text-sm font-medium text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-slate-800/50 dark:text-slate-300 dark:hover:bg-slate-700 transition-all-200">
+                Siguiente <i data-lucide="chevron-right" class="w-4 h-4"></i>
+            </button>
         </div>
 
         <!-- MENSAJE DE AYUDA SI NO HAY COINCIDENCIAS -->
@@ -4994,14 +5007,18 @@
         ];
 
         // OPTIMIZACIÓN 1: Pre-calcular la cadena de búsqueda una sola vez al cargar la app
-        // Esto evita tener que hacer .toLowerCase() de miles de ítems cada vez que se presiona una tecla.
         materiales.forEach(item => {
             item._claveBusqueda = `${item.nombre} ${item.codigo}`.toLowerCase();
         });
 
         // ==========================================
-        // 2. REFERENCIAS DEL DOM
+        // 2. ESTADO DE LA PAGINACIÓN Y DOM
         // ==========================================
+        let currentPage = 1;
+        const itemsPerPage = 50;
+        let currentFilteredResults = []; // Guardará los resultados de la búsqueda actual
+        let currentSearchQuery = '';
+
         const searchInput = document.getElementById('searchInput');
         const clearButton = document.getElementById('clearButton');
         const resultsList = document.getElementById('resultsList');
@@ -5010,8 +5027,14 @@
         const themeToggle = document.getElementById('themeToggle');
         const toast = document.getElementById('toast');
         const toastMessage = document.getElementById('toastMessage');
+        
+        // Elementos de paginación
+        const paginationControls = document.getElementById('paginationControls');
+        const prevPageBtn = document.getElementById('prevPageBtn');
+        const nextPageBtn = document.getElementById('nextPageBtn');
+        const pageIndicator = document.getElementById('pageIndicator');
 
-        // OPTIMIZACIÓN 2: Usar el SVG del icono de copiar directo para no saturar lucide.createIcons() en el bucle
+        // OPTIMIZACIÓN 2: Usar el SVG del icono de copiar directo
         const iconCopySVG = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy w-4 h-4"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
 
         // ==========================================
@@ -5095,11 +5118,12 @@
             return textoEscapado.replace(regex, '<mark>$1</mark>');
         }
 
-        function renderizarLista(elementos, consulta = '', totalResultados = 0) {
+        function renderizarLista(elementos, consulta = '', totalResultados = 0, startIndex = 0, endIndex = 0) {
             resultsList.innerHTML = '';
             
             if (elementos.length === 0) {
                 resultsList.classList.add('hidden');
+                paginationControls.classList.add('hidden');
                 noResults.classList.remove('hidden');
                 resultsCount.textContent = `0 resultados encontrados`;
                 return;
@@ -5107,14 +5131,11 @@
 
             noResults.classList.add('hidden');
             resultsList.classList.remove('hidden');
-
-            // Ordenamos los elementos filtrados alfabéticamente
-            const elementosOrdenados = [...elementos].sort((a, b) => a.nombre.localeCompare(b.nombre));
             
             // OPTIMIZACIÓN 3: DocumentFragment evita que el navegador redibuje la lista ítem por ítem
             const fragment = document.createDocumentFragment();
 
-            elementosOrdenados.forEach(item => {
+            elementos.forEach(item => {
                 const card = document.createElement('div');
                 card.className = "flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-950/40 border border-slate-150 dark:border-slate-800/60 rounded-xl hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-sm transition-all-200 group";
                 
@@ -5122,7 +5143,6 @@
                 
                 card.innerHTML = `
                     <div class="flex-1 min-w-0 pr-4">
-                        <!-- AQUÍ SE CAMBIÓ truncate POR break-words y leading-snug PARA QUE SALTE LA LÍNEA -->
                         <h4 class="text-sm sm:text-base font-semibold text-slate-700 dark:text-slate-200 break-words leading-snug">
                             ${resaltarTexto(item.nombre, consulta)}
                         </h4>
@@ -5153,32 +5173,82 @@
             resultsList.appendChild(fragment);
 
             if (consulta) {
-                resultsCount.textContent = `Mostrando ${elementos.length} de ${totalResultados} resultado(s) para "${consulta}"`;
+                resultsCount.textContent = `Mostrando ${startIndex}-${endIndex} de ${totalResultados} resultado(s) para "${consulta}"`;
             } else {
-                resultsCount.textContent = `Mostrando los primeros ${elementos.length} de ${materiales.length} materiales registrados`;
+                resultsCount.textContent = `Mostrando ${startIndex}-${endIndex} de ${totalResultados} materiales registrados`;
             }
         }
 
         // ==========================================
-        // 6. LÓGICA DE BÚSQUEDA INTELIGENTE
+        // 6. LÓGICA DE PAGINACIÓN
+        // ==========================================
+        function actualizarBotonesPaginacion() {
+            const totalPages = Math.ceil(currentFilteredResults.length / itemsPerPage);
+            
+            if (totalPages <= 1) {
+                paginationControls.classList.add('hidden');
+            } else {
+                paginationControls.classList.remove('hidden');
+                pageIndicator.textContent = `Página ${currentPage} de ${totalPages}`;
+                
+                prevPageBtn.disabled = currentPage === 1;
+                nextPageBtn.disabled = currentPage === totalPages;
+            }
+        }
+
+        function cambiarPagina(delta) {
+            const totalPages = Math.ceil(currentFilteredResults.length / itemsPerPage);
+            const nuevaPagina = currentPage + delta;
+            
+            if (nuevaPagina >= 1 && nuevaPagina <= totalPages) {
+                currentPage = nuevaPagina;
+                mostrarPaginaActual();
+                // Hace scroll automáticamente al inicio de la lista al cambiar de página
+                resultsList.scrollTop = 0;
+            }
+        }
+
+        function mostrarPaginaActual() {
+            // Calcular los índices de los elementos a mostrar
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            
+            // Extraer solo la "página" actual de los resultados
+            const itemsToShow = currentFilteredResults.slice(startIndex, endIndex);
+            
+            // Calcular números para la UI (ej. "Mostrando 1-50 de 120")
+            const indexUIInicio = currentFilteredResults.length > 0 ? startIndex + 1 : 0;
+            const indexUIFin = Math.min(endIndex, currentFilteredResults.length);
+
+            renderizarLista(itemsToShow, currentSearchQuery, currentFilteredResults.length, indexUIInicio, indexUIFin);
+            actualizarBotonesPaginacion();
+        }
+
+        // Asignar eventos a los botones
+        prevPageBtn.addEventListener('click', () => cambiarPagina(-1));
+        nextPageBtn.addEventListener('click', () => cambiarPagina(1));
+
+        // ==========================================
+        // 7. LÓGICA DE BÚSQUEDA INTELIGENTE
         // ==========================================
         function realizarBusqueda() {
-            const consulta = searchInput.value.trim().toLowerCase();
+            currentSearchQuery = searchInput.value.trim().toLowerCase();
+            currentPage = 1; // Reiniciar siempre a la primera página al buscar
 
-            if (consulta === '') {
+            if (currentSearchQuery === '') {
                 clearButton.classList.add('hidden');
-                // OPTIMIZACIÓN 4: Al estar vacío, limitamos a dibujar solo los primeros 50 para evitar lag de inicio
-                renderizarLista(materiales.slice(0, 50), '', materiales.length);
-                return;
+                // Si no hay búsqueda, mostramos todos los materiales ordenados
+                currentFilteredResults = [...materiales].sort((a, b) => a.nombre.localeCompare(b.nombre));
+            } else {
+                clearButton.classList.remove('hidden');
+                // Filtramos por coincidencia y luego ordenamos
+                currentFilteredResults = materiales
+                    .filter(item => item._claveBusqueda.includes(currentSearchQuery))
+                    .sort((a, b) => a.nombre.localeCompare(b.nombre));
             }
-
-            clearButton.classList.remove('hidden');
-
-            // Búsqueda usando el campo pre-calculado (_claveBusqueda) mucho más rápido
-            const filtrados = materiales.filter(item => item._claveBusqueda.includes(consulta));
-            const limitados = filtrados.slice(0, 50);
             
-            renderizarLista(limitados, consulta, filtrados.length);
+            // Renderizamos la página correspondiente (la 1)
+            mostrarPaginaActual();
         }
 
         // OPTIMIZACIÓN 5: Función Debounce para no saturar el procesador mientras tecleas rápido
@@ -5190,7 +5260,6 @@
             };
         }
 
-        // Retrasamos la búsqueda 150 milisegundos tras dejar de teclear
         searchInput.addEventListener('input', debounce(realizarBusqueda, 150));
 
         clearButton.addEventListener('click', () => {
@@ -5200,12 +5269,12 @@
         });
 
         // ==========================================
-        // 7. INICIALIZACIÓN DE LA APLICACIÓN
+        // 8. INICIALIZACIÓN DE LA APLICACIÓN
         // ==========================================
         window.addEventListener('DOMContentLoaded', () => {
             initTheme();
             lucide.createIcons(); // Dibuja solo los iconos principales fijos (lupa, luna, sol)
-            realizarBusqueda();   // Renderiza los primeros 50 resultados iniciales
+            realizarBusqueda();   // Inicia la lista renderizando la primera página con los primeros 50 ítems
         });
     </script>
 </body>
